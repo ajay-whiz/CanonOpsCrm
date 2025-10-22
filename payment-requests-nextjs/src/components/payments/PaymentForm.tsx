@@ -15,8 +15,8 @@ const PaymentForm = () => {
 
     try {
       const { data, error } = await supabase
-        .from('payments')
-        .insert([{ amount: parseFloat(amount), description }]);
+        .from('payment_request')
+        .insert([{ amount: parseFloat(amount), description, pr_status: 'staging' }]);
 
       if (error) throw error;
 
@@ -24,8 +24,8 @@ const PaymentForm = () => {
       setAmount('');
       setDescription('');
       alert('Payment request created successfully!');
-    } catch (error) {
-      setError('Error creating payment request: ' + error.message);
+    } catch (err: any) {
+      setError('Error creating payment request: ' + (err?.message ?? String(err)));
     } finally {
       setLoading(false);
     }

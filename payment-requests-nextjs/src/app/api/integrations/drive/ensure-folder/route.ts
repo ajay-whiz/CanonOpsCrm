@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '../../../../../lib/supabase-server';
 import { initSentry, Sentry } from '../../../../../lib/sentry';
 import { getRequestId, logError, logInfo } from '../../../../../lib/logger';
+import { verifyN8NToken } from '../../../../../lib/n8n-auth';
 
 // NOTE: In production, you may call Google Drive API here using a service account.
 // For Sprint 3, we support two modes:
@@ -13,6 +14,8 @@ export async function POST(req: NextRequest) {
     initSentry();
     const requestId = getRequestId({ headerId: req.headers.get('x-request-id') });
     const trace = req.headers.get('traceparent');
+    const auth = verifyN8NToken(req);
+    if (!auth.ok) return auth.res;
     const idemKey = req.headers.get('x-idempotency-key');
     const body = await req.json();
     const { pr_id, drive_folder_id, folder_name } = body || {};

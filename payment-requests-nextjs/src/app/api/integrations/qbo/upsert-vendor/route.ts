@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '../../../../../lib/supabase-server';
+import { verifyN8NToken } from '../../../../../lib/n8n-auth';
+import { initSentry, Sentry } from '../../../../../lib/sentry';
+import { getRequestId, logError, logInfo } from '../../../../../lib/logger';
 
 // QBO Upsert Vendor endpoint
 // - Reads OAuth creds/tokens from `secrets` table (keys you manage: e.g. qbo_credentials, qbo_tokens)
@@ -8,12 +11,16 @@ import { supabaseServer } from '../../../../../lib/supabase-server';
 
 export async function POST(req: NextRequest) {
   try {
+    initSentry();
+    const requestId = getRequestId({ headerId: req.headers.get('x-request-id') });
+    const auth = verifyN8NToken(req);
+    if (!auth.ok) return auth.res;
     const idemKey = req.headers.get('x-idempotency-key');
     const body = await req.json();
     const { pr_id, vendor_name, vendor_email } = body || {};
 
     if (!pr_id || !vendor_name) {
-      return NextResponse.json({ ok: false, error: 'pr_id and vendor_name are required' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'pr_id and vendor_name are required', requestId }, { status: 400 });
     }
 
     if (idemKey) {
@@ -21,10 +28,12 @@ export async function POST(req: NextRequest) {
         .from('webhook_events')
         .insert([{ source: 'qbo:upsert-vendor', event_id: String(idemKey) }]);
       if (idemErr && /duplicate key/i.test(idemErr.message)) {
-        return NextResponse.json({ ok: true, duplicate: true });
+        logInfo('qbo.vendor.duplicate_ignored', { requestId, idemKey });
+        return NextResponse.json({ ok: true, duplicate: true, requestId });
       }
       if (idemErr) {
-        return NextResponse.json({ ok: false, error: 'Idempotency failed: ' + idemErr.message }, { status: 500 });
+        logError('qbo.vendor.idempotency_failed', { requestId, error: idemErr.message });
+        return NextResponse.json({ ok: false, error: 'Idempotency failed: ' + idemErr.message, requestId }, { status: 500 });
       }
     }
 
@@ -34,7 +43,8 @@ export async function POST(req: NextRequest) {
       .select('key, value')
       .in('key', ['qbo_credentials', 'qbo_tokens']);
     if (secretsErr) {
-      return NextResponse.json({ ok: false, error: 'Failed to read QBO secrets: ' + secretsErr.message }, { status: 500 });
+      logError('qbo.vendor.secrets_failed', { requestId, error: secretsErr.message });
+      return NextResponse.json({ ok: false, error: 'Failed to read QBO secrets: ' + secretsErr.message, requestId }, { status: 500 });
     }
 
     const creds = (secrets || []).find((s: any) => s.key === 'qbo_credentials');
@@ -56,7 +66,8 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (prErr) {
-      return NextResponse.json({ ok: false, error: prErr.message }, { status: 500 });
+      logError('qbo.vendor.update_failed', { requestId, error: prErr.message });
+      return NextResponse.json({ ok: false, error: prErr.message, requestId }, { status: 500 });
     }
 
     await supabaseServer
@@ -69,8 +80,10 @@ export async function POST(req: NextRequest) {
         details: { qbo_vendor_id: pr.qbo_vendor_id, vendor_name, vendor_email }
       }]);
 
-    return NextResponse.json({ ok: true, data: pr });
+    logInfo('qbo.vendor.upsert_ok', { requestId, prId: pr_id, qbo_vendor_id: pr.qbo_vendor_id });
+    return NextResponse.json({ ok: true, data: pr, requestId });
   } catch (err: any) {
+    Sentry.captureException(err);
     return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
   }
 }

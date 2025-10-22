@@ -34,7 +34,7 @@ export function middleware(req: NextRequest) {
   }
 
   // Only protect main app pages
-  const protectedPrefixes = ['/dashboard', '/payment-requests', '/contacts', '/containers'];
+  const protectedPrefixes = ['/dashboard', '/payment-requests', '/contacts', '/containers', '/reports', '/audit-log'];
   const isProtected = protectedPrefixes.some((p) => pathname.startsWith(p));
   if (!isProtected) return NextResponse.next();
 
@@ -57,5 +57,12 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/payment-requests/:path*', '/contacts/:path*', '/containers/:path*'],
+  matcher: [
+    '/dashboard/:path*',
+    '/payment-requests/:path*',
+    '/contacts/:path*',
+    '/containers/:path*',
+    '/reports/:path*',
+    '/audit-log/:path*',
+  ],
 };

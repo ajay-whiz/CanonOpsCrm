@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '../../../../lib/supabase-server';
 import { initSentry, Sentry } from '../../../../lib/sentry';
 import { getRequestId, logError, logInfo } from '../../../../lib/logger';
+import { verifyN8NToken } from '../../../../lib/n8n-auth';
 
 export async function POST(req: NextRequest) {
   try {
     initSentry();
     const requestId = getRequestId({ headerId: req.headers.get('x-request-id') });
+    const auth = verifyN8NToken(req);
+    if (!auth.ok) return auth.res;
     const trace = req.headers.get('traceparent');
     const idemKey = req.headers.get('x-idempotency-key');
     const body = await req.json();

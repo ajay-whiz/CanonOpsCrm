@@ -116,6 +116,33 @@ ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 -- Admin/finance/support roles via JWT claim: role
 -- NOTE: Adjust to your Supabase JWT claim path. Example: request.jwt.claims ->> 'role'
 -- Allow read to authenticated users on minimal tables; restrict write.
+
+-- Documents table for uploaded files (Drive or others)
+CREATE TABLE IF NOT EXISTS document (
+    id BIGSERIAL PRIMARY KEY,
+    pr_id INTEGER REFERENCES payment_request(id) ON DELETE CASCADE,
+    contact_id INTEGER REFERENCES contact(id) ON DELETE CASCADE,
+    drive_file_id TEXT,
+    file_name TEXT,
+    meta JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+ALTER TABLE document ENABLE ROW LEVEL SECURITY;
+
+-- RLS: authenticated can read; write restricted to admin|finance|support
+CREATE POLICY IF NOT EXISTS document_select
+  ON document FOR SELECT TO authenticated
+  USING (true);
+CREATE POLICY IF NOT EXISTS document_write
+  ON document FOR INSERT TO authenticated
+  WITH CHECK ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','finance','support'));
+CREATE POLICY IF NOT EXISTS document_update
+  ON document FOR UPDATE TO authenticated
+  USING ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','finance','support'))
+  WITH CHECK ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','finance','support'));
+
+CREATE INDEX IF NOT EXISTS document_pr_idx ON document(pr_id);
+CREATE INDEX IF NOT EXISTS document_contact_idx ON document(contact_id);
 CREATE POLICY IF NOT EXISTS contact_read_auth
   ON contact FOR SELECT
   TO authenticated

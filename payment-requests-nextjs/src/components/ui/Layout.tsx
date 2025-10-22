@@ -14,6 +14,8 @@ const Layout: React.FC<PropsWithChildren> = ({ children }) => {
           <Link href="/payment-requests" className="nav-link">Payment Requests</Link>
           <Link href="/contacts" className="nav-link">Contacts</Link>
           <Link href="/containers" className="nav-link">Containers</Link>
+          <Link href="/reports" className="nav-link">Reports</Link>
+          <Link href="/audit-log" className="nav-link">Audit Log</Link>
         </nav>
         <div className="sidebar-footer">
           <a className="help-link" href="#" target="_blank" rel="noreferrer">Help & Docs</a>

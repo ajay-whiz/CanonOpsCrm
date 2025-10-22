@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '../../../../lib/supabase-server';
+import { initSentry, Sentry } from '../../../../lib/sentry';
+import { getRequestId, logError, logInfo } from '../../../../lib/logger';
 
 export async function POST(req: NextRequest) {
   try {
+    initSentry();
+    const requestId = getRequestId({ headerId: req.headers.get('x-request-id') });
     const body = await req.json();
     const idemKey = req.headers.get('x-idempotency-key');
     if (idemKey) {
@@ -10,15 +14,17 @@ export async function POST(req: NextRequest) {
         .from('webhook_events')
         .insert([{ source: 'n8n:contacts', event_id: idemKey }]);
       if (idemErr && /duplicate key/i.test(idemErr.message)) {
-        return NextResponse.json({ ok: true, duplicate: true });
+        logInfo('contacts.duplicate_ignored', { requestId, idemKey });
+        return NextResponse.json({ ok: true, duplicate: true, requestId });
       }
       if (idemErr) {
-        return NextResponse.json({ ok: false, error: 'Idempotency failed: ' + idemErr.message }, { status: 500 });
+        logError('contacts.idempotency_failed', { requestId, error: idemErr.message });
+        return NextResponse.json({ ok: false, error: 'Idempotency failed: ' + idemErr.message, requestId }, { status: 500 });
       }
     }
     const { email, name, meta } = body || {};
     if (!email && !name) {
-      return NextResponse.json({ ok: false, error: 'email or name required' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'email or name required', requestId }, { status: 400 });
     }
 
     const payload: any = { email: email ?? null, name: name ?? null, meta: meta ?? {} };
@@ -34,10 +40,15 @@ export async function POST(req: NextRequest) {
       .select('id, email, name, meta')
       .limit(1);
 
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    if (error) {
+      logError('contacts.upsert_failed', { requestId, error: error.message });
+      return NextResponse.json({ ok: false, error: error.message, requestId }, { status: 500 });
+    }
 
-    return NextResponse.json({ ok: true, data: data?.[0] ?? null });
+    logInfo('contacts.upsert_ok', { requestId, id: data?.[0]?.id });
+    return NextResponse.json({ ok: true, data: data?.[0] ?? null, requestId });
   } catch (err: any) {
+    Sentry.captureException(err);
     return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
   }
 }

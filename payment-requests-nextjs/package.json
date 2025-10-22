@@ -6,14 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:e2e": "playwright test --config=playwright.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.75.0",
     "axios": "^0.21.1",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "@sentry/nextjs": "^8.31.0"
   },
   "devDependencies": {
     "@types/node": "^24.9.1",
@@ -21,6 +23,8 @@
     "@types/react-dom": "^19.2.2",
     "eslint": "^7.0.0",
     "eslint-config-next": "latest",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@playwright/test": "^1.47.2",
+    "playwright": "^1.47.2"
   }
 }

@@ -218,3 +218,117 @@ CREATE POLICY IF NOT EXISTS audit_log_read_staff
   USING (
     (current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','finance','support')
   );
+
+-- Demo admin user seed (idempotent)
+-- Note: password is a placeholder and not used by Supabase auth. Adjust if your app reads from this table for auth.
+INSERT INTO users (email, password, role)
+VALUES ('demo.admin@example.com', 'demo-password-change-me', 'admin')
+ON CONFLICT (email) DO UPDATE SET
+  role = EXCLUDED.role;
+
+-- Lead/Enquiry Module -------------------------------------------------------
+-- Enums (idempotent)
+DO $$ BEGIN
+  CREATE TYPE lead_status AS ENUM ('new','contacted','qualified','won','lost','spam');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE lead_priority AS ENUM ('low','medium','high','urgent');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE lead_source AS ENUM ('web_form','email','phone','referral','import','other');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Leads table (references existing contact(id) and users(id))
+CREATE TABLE IF NOT EXISTS leads (
+  id BIGSERIAL PRIMARY KEY,
+  contact_id INTEGER REFERENCES contact(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status lead_status NOT NULL DEFAULT 'new',
+  priority lead_priority NOT NULL DEFAULT 'medium',
+  source lead_source NOT NULL DEFAULT 'web_form',
+  asana_task_gid TEXT,
+  assigned_to INTEGER REFERENCES users(id),
+  created_by INTEGER REFERENCES users(id),
+  next_touch_at TIMESTAMPTZ,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Helper: updated_at trigger (idempotent)
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END$$;
+DROP TRIGGER IF EXISTS trg_leads_updated_at ON leads;
+CREATE TRIGGER trg_leads_updated_at
+BEFORE UPDATE ON leads
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS leads_contact_idx ON leads(contact_id);
+CREATE INDEX IF NOT EXISTS leads_status_idx ON leads(status);
+CREATE INDEX IF NOT EXISTS leads_assigned_to_idx ON leads(assigned_to);
+CREATE INDEX IF NOT EXISTS leads_asana_gid_idx ON leads(asana_task_gid);
+CREATE INDEX IF NOT EXISTS leads_created_at_idx ON leads(created_at DESC);
+
+-- Lead audit table
+CREATE TABLE IF NOT EXISTS lead_audit (
+  id BIGSERIAL PRIMARY KEY,
+  lead_id BIGINT REFERENCES leads(id) ON DELETE CASCADE,
+  event TEXT NOT NULL, -- created|updated|assigned|status_changed|asana_linked|...
+  details JSONB DEFAULT '{}'::jsonb,
+  actor_user_id INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Audit trigger (insert/update on leads)
+CREATE OR REPLACE FUNCTION audit_lead_changes()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    INSERT INTO lead_audit(lead_id, event, details, actor_user_id)
+    VALUES (NEW.id, 'created', to_jsonb(NEW), NEW.created_by);
+    RETURN NEW;
+  ELSIF (TG_OP = 'UPDATE') THEN
+    INSERT INTO lead_audit(lead_id, event, details, actor_user_id)
+    VALUES (NEW.id, 'updated', jsonb_build_object('before', to_jsonb(OLD), 'after', to_jsonb(NEW)), NEW.assigned_to);
+    RETURN NEW;
+  END IF;
+  RETURN NEW;
+END$$;
+DROP TRIGGER IF EXISTS trg_leads_audit ON leads;
+CREATE TRIGGER trg_leads_audit
+AFTER INSERT OR UPDATE ON leads
+FOR EACH ROW EXECUTE FUNCTION audit_lead_changes();
+
+-- RLS
+ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lead_audit ENABLE ROW LEVEL SECURITY;
+
+-- Read: allow all authenticated to read leads (align with existing pattern),
+-- write restricted to admin/support. Adjust later if user-id claims are available.
+CREATE POLICY IF NOT EXISTS leads_select_auth
+  ON leads FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY IF NOT EXISTS leads_insert_staff
+  ON leads FOR INSERT
+  TO authenticated
+  WITH CHECK ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','support'));
+
+CREATE POLICY IF NOT EXISTS leads_update_staff
+  ON leads FOR UPDATE
+  TO authenticated
+  USING ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','support'))
+  WITH CHECK ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','support'));
+
+-- lead_audit: read for staff only
+CREATE POLICY IF NOT EXISTS lead_audit_read_staff
+  ON lead_audit FOR SELECT
+  TO authenticated
+  USING ((current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IN ('admin','support'));

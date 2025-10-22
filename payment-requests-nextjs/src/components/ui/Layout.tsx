@@ -12,6 +12,7 @@ const Layout: React.FC<PropsWithChildren> = ({ children }) => {
         <nav className="nav">
           <Link href="/dashboard" className="nav-link">Dashboard</Link>
           <Link href="/payment-requests" className="nav-link">Payment Requests</Link>
+          <Link href="/leads" className="nav-link">Leads</Link>
           <Link href="/contacts" className="nav-link">Contacts</Link>
           <Link href="/containers" className="nav-link">Containers</Link>
           <Link href="/reports" className="nav-link">Reports</Link>

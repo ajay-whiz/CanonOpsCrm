@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { supabase } from '../../../lib/supabaseClient';
-
+// import { supabase } from '../../../lib/supabaseClient';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,17 +13,34 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      const { data: sessionData } = await supabase.auth.getSession();
-      const access_token = sessionData?.session?.access_token;
-      if (access_token) {
-        await fetch('/api/auth/set-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ access_token }),
-        });
+
+      // const { error } = await supabase.auth.signInWithPassword({ email, password });
+      // if (error) throw error;
+      // const { data: sessionData } = await supabase.auth.getSession();
+      // const access_token = sessionData?.session?.access_token;
+      // if (access_token) {
+      //   await fetch('/api/auth/set-session', {
+      //     method: 'POST',
+      //     headers: { 'Content-Type': 'application/json' },
+      //     body: JSON.stringify({ access_token }),
+      //   });
+      // }
+
+      const base = process.env.NEXT_PUBLIC_BACKEND_URL as string;
+      const res = await fetch(`${base}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.status) {
+        throw new Error(json?.message || 'Login failed');
       }
+      const token: string | undefined = json?.data?.token;
+      if (!token) throw new Error('No token returned from server');
+      try {
+        localStorage.setItem('auth_token', token);
+      } catch {}
       window.location.href = '/dashboard';
     } catch (err: any) {
       setError(err?.message ?? 'Login failed');

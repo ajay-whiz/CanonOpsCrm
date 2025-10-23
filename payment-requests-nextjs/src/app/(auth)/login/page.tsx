@@ -41,6 +41,12 @@ export default function LoginPage() {
       try {
         localStorage.setItem('auth_token', token);
       } catch {}
+      // Set HttpOnly cookie so middleware recognizes the session
+      await fetch('/api/auth/set-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: token }),
+      });
       window.location.href = '/dashboard';
     } catch (err: any) {
       setError(err?.message ?? 'Login failed');
